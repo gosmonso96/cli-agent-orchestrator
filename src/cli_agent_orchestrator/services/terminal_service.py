@@ -61,6 +61,7 @@ def create_terminal(
     new_session: bool = False,
     working_directory: Optional[str] = None,
     allowed_tools: Optional[list] = None,
+    team: Optional[str] = None,
 ) -> Terminal:
     """Create a new terminal with an initialized CLI agent.
 
@@ -146,6 +147,10 @@ def create_terminal(
         log_path.touch()  # Ensure file exists before watching
         tmux_client.pipe_pane(session_name, window_name, str(log_path))
 
+        # Step 6: Set team env var if team is specified
+        if team:
+            tmux_client.set_environment(session_name, "CAO_TEAM", team)
+
         # Build and return the Terminal object
         terminal = Terminal(
             id=terminal_id,
@@ -155,6 +160,7 @@ def create_terminal(
             agent_profile=agent_profile,
             status=TerminalStatus.IDLE,
             last_active=datetime.now(),
+            team=team,
         )
 
         logger.info(

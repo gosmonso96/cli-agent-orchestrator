@@ -368,11 +368,23 @@ class TmuxClient:
                 is_attached = len(getattr(session, "attached_sessions", [])) > 0
 
                 session_name = session.name if session.name is not None else ""
+
+                # Read team from session environment
+                team = None
+                try:
+                    env_output = session.cmd("show-environment", "-t", session_name, "CAO_TEAM")
+                    for line in env_output.stdout:
+                        if line.startswith("CAO_TEAM="):
+                            team = line.split("=", 1)[1]
+                except Exception:
+                    pass  # No team set
+
                 sessions.append(
                     {
                         "id": session_name,
                         "name": session_name,
                         "status": "active" if is_attached else "detached",
+                        "team": team,
                     }
                 )
 
@@ -481,6 +493,16 @@ class TmuxClient:
         except Exception as e:
             logger.error(f"Failed to start pipe-pane for {session_name}:{window_name}: {e}")
             raise
+
+    def set_environment(self, session_name: str, key: str, value: str) -> None:
+        """Set a session-level environment variable in tmux."""
+        try:
+            session = self.server.sessions.get(session_name=session_name)
+            if session:
+                session.cmd("set-environment", key, value)
+                logger.info(f"Set env {key}={value} in session {session_name}")
+        except Exception as e:
+            logger.warning(f"Failed to set env {key} in {session_name}: {e}")
 
     def stop_pipe_pane(self, session_name: str, window_name: str) -> None:
         """Stop piping pane output.

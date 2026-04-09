@@ -20,11 +20,12 @@ PROVIDERS_REQUIRING_WORKSPACE_ACCESS = {
 
 
 @click.command()
-@click.option("--agents", required=True, help="Agent profile to launch")
+@click.option("--agents", required=False, help="Agent profile to launch")
+@click.option("--team", "team_name", help="Team to launch (bounded context)")
 @click.option("--session-name", help="Name of the session (default: auto-generated)")
 @click.option("--headless", is_flag=True, help="Launch in detached mode")
 @click.option(
-    "--provider", default=DEFAULT_PROVIDER, help=f"Provider to use (default: {DEFAULT_PROVIDER})"
+    "--provider", default=None, help=f"Provider to use (default: {DEFAULT_PROVIDER})"
 )
 @click.option(
     "--allowed-tools",
@@ -42,15 +43,43 @@ PROVIDERS_REQUIRING_WORKSPACE_ACCESS = {
     help="[DANGEROUS] Unrestricted tool access AND skip confirmation prompts. "
     "Agent can execute ANY command including aws, rm, curl.",
 )
-def launch(agents, session_name, headless, provider, allowed_tools, auto_approve, yolo):
+def launch(agents, team_name, session_name, headless, provider, allowed_tools, auto_approve, yolo):
     """Launch cao session with specified agent profile."""
     try:
+        # Resolve team — interactive picker if neither --agents nor --team provided
+        team = None
+        if team_name:
+            from cli_agent_orchestrator.services.team_service import load_team
+
+            team = load_team(team_name)
+        elif not agents:
+            team = _pick_team()
+
+        # Apply team defaults
+        if team:
+            if not agents:
+                agents = team.agents[0] if team.agents else "code_supervisor"
+            if not provider:
+                provider = team.provider or DEFAULT_PROVIDER
+            if not session_name:
+                session_name = team.name
+
+        # Final defaults
+        if not agents:
+            raise click.ClickException("Either --agents or --team is required")
+        if not provider:
+            provider = DEFAULT_PROVIDER
+
         # Validate provider
         if provider not in PROVIDERS:
             raise click.ClickException(
                 f"Invalid provider '{provider}'. Available providers: {', '.join(PROVIDERS)}"
             )
         working_directory = os.path.realpath(os.getcwd())
+
+        # Team overrides working directory
+        if team and team.resolved_home and team.resolved_home.is_dir():
+            working_directory = str(team.resolved_home)
 
         # Resolve allowedTools: --yolo > --allowed-tools CLI > profile/role defaults
         from cli_agent_orchestrator.utils.agent_profiles import load_agent_profile
@@ -129,13 +158,16 @@ def launch(agents, session_name, headless, provider, allowed_tools, auto_approve
         if resolved_allowed_tools:
             # Pass as comma-separated string for query param
             params["allowed_tools"] = ",".join(resolved_allowed_tools)
+        if team:
+            params["team"] = team.name
 
         response = requests.post(url, params=params)
         response.raise_for_status()
 
         terminal = response.json()
 
-        click.echo(f"Session created: {terminal['session_name']}")
+        team_label = f" [team: {team.name}]" if team else ""
+        click.echo(f"Session created: {terminal['session_name']}{team_label}")
         click.echo(f"Terminal created: {terminal['name']}")
 
         # Attach to tmux session unless headless
@@ -148,3 +180,29 @@ def launch(agents, session_name, headless, provider, allowed_tools, auto_approve
         raise
     except Exception as e:
         raise click.ClickException(str(e))
+
+
+def _pick_team():
+    """Interactive team picker. Returns Team or None."""
+    from cli_agent_orchestrator.services.team_service import list_teams
+
+    teams = list_teams()
+    if not teams:
+        return None
+
+    click.echo("\nSelect a team:")
+    for i, t in enumerate(teams, 1):
+        home = t.home or "(cwd)"
+        display = t.display_name or t.name
+        click.echo(f"  {i}. {t.name:<20} — {display} ({home})")
+    click.echo(f"  {len(teams) + 1}. (none)             — Launch without a team")
+
+    choice = click.prompt(
+        f"\nTeam [1-{len(teams) + 1}]",
+        type=click.IntRange(1, len(teams) + 1),
+        default=len(teams) + 1,
+    )
+
+    if choice <= len(teams):
+        return teams[choice - 1]
+    return None

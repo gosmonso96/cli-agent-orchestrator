@@ -253,6 +253,7 @@ async def create_session(
     session_name: Optional[str] = None,
     working_directory: Optional[str] = None,
     allowed_tools: Optional[str] = None,
+    team: Optional[str] = None,
 ) -> Terminal:
     """Create a new session with exactly one terminal."""
     try:
@@ -266,6 +267,7 @@ async def create_session(
             new_session=True,
             working_directory=working_directory,
             allowed_tools=allowed_tools_list,
+            team=team,
         )
         return result
 

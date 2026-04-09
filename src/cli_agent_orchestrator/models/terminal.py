@@ -35,3 +35,4 @@ class Terminal(BaseModel):
         None, description="Current terminal status (live only)"
     )
     last_active: Optional[datetime] = Field(None, description="Last active timestamp")
+    team: Optional[str] = Field(None, description="Team name (bounded context)")
